@@ -13,24 +13,18 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 META_PAGE_ID = os.getenv("META_PAGE_ID")
 META_PAGE_ACCESS_TOKEN = os.getenv("META_PAGE_ACCESS_TOKEN")
 
-# You can change these in GitHub Secrets/Variables if required.
 OPENAI_TEXT_MODEL = os.getenv("OPENAI_TEXT_MODEL", "gpt-4.1-mini")
 OPENAI_IMAGE_MODEL = os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-1")
 
 META_GRAPH_VERSION = os.getenv("META_GRAPH_VERSION", "v26.0")
 
-# Facebook API endpoint
-FACEBOOK_PHOTO_URL = (
-    f"https://graph.facebook.com/{META_GRAPH_VERSION}/"
-    f"{META_PAGE_ID}/photos"
-)
-
 
 # ============================================================
-# VALIDATE ENVIRONMENT
+# VALIDATE ENVIRONMENT VARIABLES
 # ============================================================
 
 def validate_environment():
+
     missing = []
 
     if not OPENAI_API_KEY:
@@ -43,15 +37,18 @@ def validate_environment():
         missing.append("META_PAGE_ACCESS_TOKEN")
 
     if missing:
-        print("ERROR: Missing required environment variables:")
+        print("ERROR: Missing GitHub Secrets:")
         for item in missing:
             print(f"  - {item}")
+
         sys.exit(1)
 
-    print("Environment variables loaded successfully.")
+    print("==========================================")
+    print("Environment validation successful")
+    print("==========================================")
     print(f"Facebook Page ID: {META_PAGE_ID}")
-    print(f"OpenAI text model: {OPENAI_TEXT_MODEL}")
-    print(f"OpenAI image model: {OPENAI_IMAGE_MODEL}")
+    print(f"OpenAI Text Model: {OPENAI_TEXT_MODEL}")
+    print(f"OpenAI Image Model: {OPENAI_IMAGE_MODEL}")
 
 
 # ============================================================
@@ -59,41 +56,48 @@ def validate_environment():
 # ============================================================
 
 def create_openai_client():
-    return OpenAI(api_key=OPENAI_API_KEY)
+
+    return OpenAI(
+        api_key=OPENAI_API_KEY
+    )
 
 
 # ============================================================
-# GENERATE ODIA FACEBOOK POST
+# GENERATE ODIA BHAGAVAD GITA FACEBOOK POST
 # ============================================================
 
 def generate_odia_post(client):
-    print("\nGenerating Odia Bhagavad Gita post...")
+
+    print()
+    print("Generating Odia Bhagavad Gita Facebook post...")
 
     prompt = """
 Create one original Facebook post inspired by the Bhagavad Gita.
 
-Language:
-- Odia only.
-- Use natural, easy-to-read Odia.
-- Do not use English except where absolutely necessary.
+The Facebook page is:
 
-Content:
-- Spiritual and positive.
-- Suitable for the Facebook page "Srimad Bhagabat Gita".
+Srimad Bhagabat Gita
+
+Requirements:
+
+- Write the post in natural Odia.
+- Use Odia script.
+- The content should be spiritual, positive and inspirational.
 - Explain one practical life lesson inspired by the Bhagavad Gita.
-- Do not invent a fake Bhagavad Gita verse.
-- If mentioning a verse, clearly identify it as an inspiration rather than claiming an exact quotation.
+- Do not invent a Bhagavad Gita verse.
+- Do not falsely attribute a quotation to Krishna or the Bhagavad Gita.
+- If mentioning a verse, clearly mention the chapter and verse only when confident.
 - Avoid political content.
-- Avoid controversial religious claims.
-
-Format:
-- Start with a short attractive Odia heading.
-- Then 2-4 short paragraphs.
-- End with a short devotional thought.
+- Avoid controversial claims.
+- Make the post suitable for a general Facebook audience.
+- Use a short attractive heading.
+- Use 2-4 short paragraphs.
+- End with a devotional thought.
 - Add 5-8 relevant hashtags.
-- Keep the total post reasonably short for Facebook.
 
 Return ONLY the final Facebook post.
+
+Do not explain what you did.
 """
 
     response = client.responses.create(
@@ -104,47 +108,53 @@ Return ONLY the final Facebook post.
     post_text = response.output_text.strip()
 
     if not post_text:
-        raise RuntimeError("OpenAI returned an empty Facebook post.")
+        raise RuntimeError(
+            "OpenAI returned an empty Facebook post."
+        )
 
-    print("\nGenerated Facebook post:")
-    print("-" * 60)
+    print("------------------------------------------")
     print(post_text)
-    print("-" * 60)
+    print("------------------------------------------")
 
     return post_text
 
 
 # ============================================================
-# GENERATE IMAGE PROMPT
+# CREATE IMAGE PROMPT
 # ============================================================
 
 def create_image_prompt(client, post_text):
-    print("\nCreating image prompt...")
+
+    print()
+    print("Creating image prompt...")
 
     prompt = f"""
-Create a concise image-generation prompt for a Facebook devotional
-image based on the following Odia Bhagavad Gita post.
+Create a professional image-generation prompt for a Facebook
+devotional post based on this content:
 
-Facebook post:
 {post_text}
 
-Requirements:
-- Indian spiritual aesthetic.
-- Lord Krishna and Arjuna may be depicted respectfully.
+Image requirements:
+
+- Indian spiritual atmosphere.
+- Lord Krishna and Arjuna may appear respectfully.
 - Kurukshetra-inspired environment where appropriate.
+- Beautiful golden sunrise or divine light.
 - Cinematic devotional atmosphere.
-- Golden sunrise/light.
-- Highly detailed traditional Indian visual style.
-- Peaceful, inspirational and premium-looking.
-- 1:1 square Facebook post composition.
-- No text.
+- Traditional Indian visual aesthetics.
+- Highly detailed.
+- Peaceful and inspirational.
+- Premium Facebook social-media artwork.
+- Square 1:1 composition.
+- No written text.
 - No letters.
+- No captions.
 - No watermark.
 - No logo.
-- No social-media UI.
-- Do not attempt to reproduce copyrighted artwork.
+- No Facebook interface.
+- Do not copy existing artwork.
 
-Return ONLY the image prompt.
+Return ONLY the image-generation prompt.
 """
 
     response = client.responses.create(
@@ -155,9 +165,11 @@ Return ONLY the image prompt.
     image_prompt = response.output_text.strip()
 
     if not image_prompt:
-        raise RuntimeError("OpenAI returned an empty image prompt.")
+        raise RuntimeError(
+            "OpenAI returned an empty image prompt."
+        )
 
-    print("\nImage prompt created successfully.")
+    print("Image prompt created successfully.")
 
     return image_prompt
 
@@ -167,7 +179,10 @@ Return ONLY the image prompt.
 # ============================================================
 
 def generate_image(client, image_prompt):
-    print("\nGenerating devotional image with OpenAI...")
+
+    print()
+    print("Generating image with OpenAI...")
+    print(f"Image model: {OPENAI_IMAGE_MODEL}")
 
     response = client.images.generate(
         model=OPENAI_IMAGE_MODEL,
@@ -177,177 +192,287 @@ def generate_image(client, image_prompt):
     )
 
     if not response.data:
-        raise RuntimeError("OpenAI image generation returned no image data.")
+        raise RuntimeError(
+            "OpenAI returned no image data."
+        )
 
     image_data = response.data[0]
 
+    # --------------------------------------------------------
     # GPT Image models return Base64 image data.
-    image_b64 = getattr(image_data, "b64_json", None)
+    # Do NOT try to download response.data[0].url.
+    # --------------------------------------------------------
+
+    image_b64 = getattr(
+        image_data,
+        "b64_json",
+        None
+    )
 
     if not image_b64:
         raise RuntimeError(
-            "OpenAI image generation did not return b64_json image data."
+            "OpenAI did not return b64_json image data."
         )
 
     try:
-        image_bytes = base64.b64decode(image_b64)
-    except Exception as exc:
+
+        image_bytes = base64.b64decode(
+            image_b64
+        )
+
+    except Exception as error:
+
         raise RuntimeError(
-            f"Unable to decode OpenAI image Base64 data: {exc}"
-        ) from exc
+            f"Could not decode Base64 image: {error}"
+        )
 
     if not image_bytes:
-        raise RuntimeError("Decoded image is empty.")
+
+        raise RuntimeError(
+            "Decoded image is empty."
+        )
 
     print(
-        f"Image generated successfully "
-        f"({len(image_bytes) / 1024:.1f} KB)."
+        f"Image generated successfully: "
+        f"{len(image_bytes) / 1024:.2f} KB"
     )
 
     return image_bytes
 
 
 # ============================================================
-# POST IMAGE TO FACEBOOK PAGE
+# FACEBOOK IMAGE POST
 # ============================================================
 
-def post_image_to_facebook(post_text, image_bytes):
-    print("\nUploading image to Facebook...")
+def publish_to_facebook(
+    post_text,
+    image_bytes
+):
+
+    print()
+    print("Publishing to Facebook...")
+
+    facebook_url = (
+        f"https://graph.facebook.com/"
+        f"{META_GRAPH_VERSION}/"
+        f"{META_PAGE_ID}/photos"
+    )
 
     files = {
+
         "source": (
-            "srimad_bhagabat_gita.png",
+            "gita_post.png",
             image_bytes,
             "image/png"
         )
+
     }
 
     data = {
+
         "message": post_text,
-        "access_token": META_PAGE_ACCESS_TOKEN
+
+        "access_token":
+            META_PAGE_ACCESS_TOKEN
+
     }
 
     try:
+
         response = requests.post(
-            FACEBOOK_PHOTO_URL,
+            facebook_url,
             data=data,
             files=files,
             timeout=120
         )
-    except requests.RequestException as exc:
-        raise RuntimeError(
-            f"Facebook request failed: {exc}"
-        ) from exc
 
-    print(f"Facebook HTTP status: {response.status_code}")
+    except requests.RequestException as error:
+
+        raise RuntimeError(
+            f"Facebook connection failed: {error}"
+        )
+
+    print(
+        f"Facebook HTTP status: "
+        f"{response.status_code}"
+    )
 
     try:
+
         result = response.json()
+
     except ValueError:
+
         raise RuntimeError(
-            "Facebook returned a non-JSON response:\n"
+            "Facebook returned invalid JSON:\n"
             + response.text[:1000]
         )
 
+    # --------------------------------------------------------
+    # Facebook API error
+    # --------------------------------------------------------
+
     if not response.ok:
-        print("\nFacebook API error:")
+
+        print()
+        print("Facebook API ERROR:")
         print(result)
 
-        error = result.get("error", {})
-
-        message = error.get(
-            "message",
-            "Unknown Facebook API error"
+        error_data = result.get(
+            "error",
+            {}
         )
 
-        code = error.get("code")
-        subcode = error.get("error_subcode")
+        error_message = error_data.get(
+            "message",
+            "Unknown Facebook error"
+        )
+
+        error_code = error_data.get(
+            "code",
+            "Unknown"
+        )
+
+        error_subcode = error_data.get(
+            "error_subcode",
+            "Unknown"
+        )
 
         raise RuntimeError(
-            f"Facebook API error: {message} "
-            f"(code={code}, subcode={subcode})"
+            f"Facebook API Error: "
+            f"{error_message} "
+            f"(code={error_code}, "
+            f"subcode={error_subcode})"
         )
 
-    print("\nFacebook upload successful.")
+    print()
+    print("==========================================")
+    print("FACEBOOK POST SUCCESSFUL")
+    print("==========================================")
+
     print(result)
 
     return result
 
 
 # ============================================================
-# MAIN
+# MAIN PROGRAM
 # ============================================================
 
 def main():
-    print("=" * 60)
-    print("ODIA BHAGABAT GITA - FACEBOOK AUTO POSTER")
-    print("=" * 60)
+
+    print()
+    print("==========================================")
+    print("ODIA BHAGABAT GITA AUTO POSTER")
+    print("==========================================")
+
+    # --------------------------------------------------------
+    # 1. Validate secrets
+    # --------------------------------------------------------
 
     validate_environment()
+
+    # --------------------------------------------------------
+    # 2. Create OpenAI client
+    # --------------------------------------------------------
 
     client = create_openai_client()
 
     # --------------------------------------------------------
-    # 1. Generate Odia post
+    # 3. Generate Odia Facebook content
     # --------------------------------------------------------
-    post_text = generate_odia_post(client)
+
+    post_text = generate_odia_post(
+        client
+    )
 
     # --------------------------------------------------------
-    # 2. Generate image prompt
+    # 4. Generate image prompt
     # --------------------------------------------------------
+
     image_prompt = create_image_prompt(
         client,
         post_text
     )
 
     # --------------------------------------------------------
-    # 3. Generate image
+    # 5. Generate image
     # --------------------------------------------------------
+
     image_bytes = generate_image(
         client,
         image_prompt
     )
 
     # --------------------------------------------------------
-    # 4. Upload to Facebook
+    # 6. Publish image + text to Facebook
     # --------------------------------------------------------
-    facebook_result = post_image_to_facebook(
+
+    result = publish_to_facebook(
         post_text,
         image_bytes
     )
 
     # --------------------------------------------------------
-    # 5. Success
+    # 7. Display result
     # --------------------------------------------------------
-    print("\n" + "=" * 60)
-    print("SUCCESS")
-    print("=" * 60)
 
-    if isinstance(facebook_result, dict):
-        post_id = (
-            facebook_result.get("post_id")
-            or facebook_result.get("id")
+    post_id = None
+
+    if isinstance(result, dict):
+
+        post_id = result.get(
+            "post_id"
         )
 
-        if post_id:
-            print(f"Facebook Post ID: {post_id}")
+        if not post_id:
 
-    print("Your Odia Bhagavad Gita image post has been published.")
-    print("=" * 60)
+            post_id = result.get(
+                "id"
+            )
 
+    print()
+    print("==========================================")
+    print("AUTOMATION COMPLETED")
+    print("==========================================")
+
+    if post_id:
+
+        print(
+            f"Facebook Post ID: {post_id}"
+        )
+
+    print(
+        "Odia Bhagabat Gita post "
+        "published successfully."
+    )
+
+
+# ============================================================
+# PROGRAM ENTRY POINT
+# ============================================================
 
 if __name__ == "__main__":
+
     try:
+
         main()
 
     except KeyboardInterrupt:
-        print("\nProcess cancelled by user.")
+
+        print(
+            "\nProcess stopped."
+        )
+
         sys.exit(130)
 
-    except Exception as exc:
-        print("\n" + "=" * 60)
-        print("FAILED")
-        print("=" * 60)
-        print(str(exc))
-        print("=" * 60)
+    except Exception as error:
+
+        print()
+        print("==========================================")
+        print("AUTOMATION FAILED")
+        print("==========================================")
+        print(str(error))
+        print("==========================================")
+
         sys.exit(1)
