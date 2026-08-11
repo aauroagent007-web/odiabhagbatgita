@@ -9,9 +9,33 @@ on:
 jobs:
   post-to-facebook:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Show checked out version
+        run: |
+          echo "=========================================="
+          echo "GITHUB SHA:"
+          git rev-parse HEAD
+          echo "=========================================="
+          echo "MAIN.PY LOCATION:"
+          pwd
+          ls -la
+          echo "=========================================="
+          echo "SEARCHING FOR OLD image_url CODE:"
+          grep -n "image_url" main.py || true
+          echo "=========================================="
+          echo "SEARCHING FOR OLD requests.get CODE:"
+          grep -n "requests.get(image_url" main.py || true
+          echo "=========================================="
+          echo "MAIN.PY FIRST 40 LINES:"
+          sed -n '1,40p' main.py
+          echo "=========================================="
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -19,7 +43,9 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
       - name: Publish daily Odia Bhagabata Gita post
         env:
