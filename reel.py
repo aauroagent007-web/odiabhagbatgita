@@ -1,7 +1,7 @@
 import os
 import sys
+import json
 import time
-import base64
 import subprocess
 from pathlib import Path
 
@@ -13,16 +13,27 @@ from openai import OpenAI
 # CONFIGURATION
 # ============================================================
 
-META_PAGE_ID = os.environ.get("META_PAGE_ID")
-META_PAGE_ACCESS_TOKEN = os.environ.get("META_PAGE_ACCESS_TOKEN")
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+META_PAGE_ID = os.getenv("META_PAGE_ID")
+META_PAGE_ACCESS_TOKEN = os.getenv("META_PAGE_ACCESS_TOKEN")
 
-GRAPH_VERSION = "v26.0"
+OPENAI_TEXT_MODEL = "gpt-4.1-mini"
+OPENAI_IMAGE_MODEL = "gpt-image-1"
+OPENAI_TTS_MODEL = "gpt-4o-mini-tts"
 
-OUTPUT_DIR = Path("generated_reel")
-OUTPUT_DIR.mkdir(exist_ok=True)
+GRAPH_API_VERSION = "v26.0"
 
-IMAGE_FILE = OUTPUT_DIR / "gita_reel.jpg"
+VIDEO_DURATION = 20
+VIDEO_WIDTH = 1080
+VIDEO_HEIGHT = 1920
+
+BASE_DIR = Path(__file__).resolve().parent
+OUTPUT_DIR = BASE_DIR / "output"
+
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+IMAGE_FILE = OUTPUT_DIR / "gita_reel.png"
+AUDIO_FILE = OUTPUT_DIR / "gita_voice.mp3"
 VIDEO_FILE = OUTPUT_DIR / "gita_reel.mp4"
 
 
@@ -30,8 +41,14 @@ VIDEO_FILE = OUTPUT_DIR / "gita_reel.mp4"
 # VALIDATE ENVIRONMENT
 # ============================================================
 
-def check_environment():
+def validate_environment():
+
+    print("\nChecking environment...")
+
     missing = []
+
+    if not OPENAI_API_KEY:
+        missing.append("OPENAI_API_KEY")
 
     if not META_PAGE_ID:
         missing.append("META_PAGE_ID")
@@ -39,17 +56,28 @@ def check_environment():
     if not META_PAGE_ACCESS_TOKEN:
         missing.append("META_PAGE_ACCESS_TOKEN")
 
-    if not OPENAI_API_KEY:
-        missing.append("OPENAI_API_KEY")
-
     if missing:
-        print("ERROR: Missing GitHub Secrets:")
+        print("\nERROR: Missing GitHub Actions secrets:")
         for item in missing:
             print(f"  - {item}")
+
+        print("\nPlease check:")
+        print("GitHub → Settings → Secrets and variables → Actions")
+
         sys.exit(1)
 
-    print("Environment variables OK")
-    print(f"Facebook Page ID: {META_PAGE_ID}")
+    print("OPENAI_API_KEY: OK")
+    print(f"META_PAGE_ID: {META_PAGE_ID}")
+    print("META_PAGE_ACCESS_TOKEN: OK")
+
+
+# ============================================================
+# OPENAI CLIENT
+# ============================================================
+
+client = OpenAI(
+    api_key=OPENAI_API_KEY
+)
 
 
 # ============================================================
@@ -57,38 +85,55 @@ def check_environment():
 # ============================================================
 
 def generate_content():
-    client = OpenAI(api_key=OPENAI_API_KEY)
+
+    print("\n" + "=" * 60)
+    print("Generating Odia Bhagavad Gita Reel content...")
+    print("=" * 60)
 
     prompt = """
 Create content for a 20-second Facebook Reel for an Odia
 Bhagavad Gita spiritual page.
 
+The content must be in natural, grammatically correct Odia.
+
+Create:
+
+1. A short title.
+2. A short devotional message.
+3. A voice narration suitable for approximately 15-20 seconds.
+4. A short Facebook caption.
+5. 5-8 relevant hashtags.
+
+The narration should be approximately 35-50 Odia words.
+It must be peaceful, devotional and easy to speak.
+
+Do NOT invent a Bhagavad Gita quotation and attribute it directly
+to Lord Krishna.
+
+If mentioning a teaching from the Bhagavad Gita, clearly describe
+it as a teaching or message rather than presenting an invented
+quotation as a scripture verse.
+
 Return ONLY valid JSON in this format:
 
 {
   "title": "...",
+  "message": "...",
   "voice_text": "...",
   "caption": "...",
-  "hashtags": "..."
+  "hashtags": ["...", "..."]
 }
-
-Requirements:
-
-- Language: Odia
-- Spiritual and positive
-- Based on Bhagavad Gita teachings
-- Do not invent a direct quotation from Krishna
-- Keep voice_text suitable for approximately 20 seconds
-- Caption should be engaging but not clickbait
-- Hashtags should include relevant Odia and Bhagavad Gita hashtags
 """
 
     response = client.chat.completions.create(
-        model="gpt-4.1-mini",
+        model=OPENAI_TEXT_MODEL,
         messages=[
             {
                 "role": "system",
-                "content": "You create accurate, respectful Odia Bhagavad Gita social-media content."
+                "content": (
+                    "You are an expert Odia spiritual content writer. "
+                    "Write natural, respectful Odia."
+                )
             },
             {
                 "role": "user",
@@ -98,83 +143,232 @@ Requirements:
         temperature=0.8
     )
 
-    content = response.choices[0].message.content.strip()
+    text = response.choices[0].message.content.strip()
 
     # Remove markdown JSON fences if the model adds them
-    if content.startswith("```"):
-        content = content.replace("```json", "")
-        content = content.replace("```", "")
-        content = content.strip()
-
-    import json
+    if text.startswith("```"):
+        text = text.replace("```json", "")
+        text = text.replace("```", "")
+        text = text.strip()
 
     try:
-        data = json.loads(content)
-    except Exception as e:
-        print("Could not parse OpenAI JSON response:")
-        print(content)
-        raise e
+        content = json.loads(text)
+    except json.JSONDecodeError:
+        print("\nERROR: OpenAI did not return valid JSON.")
+        print(text)
+        sys.exit(1)
 
-    print("\nGenerated Reel content:")
-    print("Title:", data["title"])
-    print("Voice:", data["voice_text"])
-    print("Caption:", data["caption"])
-    print("Hashtags:", data["hashtags"])
+    required_fields = [
+        "title",
+        "message",
+        "voice_text",
+        "caption",
+        "hashtags"
+    ]
 
-    return data
+    for field in required_fields:
+        if field not in content:
+            print(f"ERROR: Missing field: {field}")
+            sys.exit(1)
+
+    print("\nTitle:")
+    print(content["title"])
+
+    print("\nMessage:")
+    print(content["message"])
+
+    print("\nVoice narration:")
+    print(content["voice_text"])
+
+    print("\nCaption:")
+    print(content["caption"])
+
+    print("\nHashtags:")
+    print(" ".join(content["hashtags"]))
+
+    return content
 
 
 # ============================================================
-# GENERATE VERTICAL IMAGE
+# GENERATE IMAGE
 # ============================================================
 
 def generate_image(content):
-    client = OpenAI(api_key=OPENAI_API_KEY)
+
+    print("\n" + "=" * 60)
+    print("Generating vertical devotional image...")
+    print("=" * 60)
 
     image_prompt = f"""
-Create a beautiful cinematic vertical 9:16 devotional image
-for an Odia Bhagavad Gita Facebook Reel.
+Create a highly beautiful cinematic devotional image for an
+Odia Bhagavad Gita Facebook Reel.
 
-Theme:
-{content["title"]}
+Vertical 9:16 composition.
 
-Visual concept:
-Lord Krishna and Arjuna in a majestic Kurukshetra setting,
-golden sunrise, divine atmosphere, traditional Indian
-spiritual art, realistic cinematic lighting, peaceful and
-inspiring mood.
+Scene:
+Lord Krishna standing peacefully in a majestic spiritual
+environment inspired by the Kurukshetra battlefield, with
+soft golden sunrise light, subtle divine aura, traditional
+Indian atmosphere, elegant clothing, peaceful expression,
+cinematic lighting, realistic devotional artwork.
 
-Composition:
-- Vertical 9:16
-- Krishna clearly visible
-- Arjuna and chariot visible
-- Kurukshetra battlefield in the background
-- Rich devotional atmosphere
+The visual should communicate:
+{content["message"]}
+
+Important:
+- Vertical composition
+- 9:16
+- Suitable for a Facebook Reel
+- High quality
+- Cinematic
+- Spiritual
+- Respectful
 - No modern objects
-- No logos
 - No watermark
-- NO TEXT anywhere in the image
+- No logo
+- No text
+- No captions
 """
 
-    print("\nGenerating vertical image...")
+    try:
+        result = client.images.generate(
+            model=OPENAI_IMAGE_MODEL,
+            prompt=image_prompt,
+            size="1024x1536"
+        )
 
-    result = client.images.generate(
-        model="gpt-image-1",
-        prompt=image_prompt,
-        size="1024x1536"
-    )
+    except Exception as e:
+        print("\nImage generation failed:")
+        print(str(e))
+        sys.exit(1)
 
-    image_base64 = result.data[0].b64_json
+    image_url = None
 
-    if not image_base64:
-        raise RuntimeError("OpenAI did not return image data.")
+    if result.data:
+        image_url = result.data[0].url
 
-    image_bytes = base64.b64decode(image_base64)
+    if not image_url:
+        print("\nERROR: OpenAI did not return an image URL.")
+        print(result)
+        sys.exit(1)
 
-    IMAGE_FILE.write_bytes(image_bytes)
+    print("Image URL received.")
 
-    print(f"Image created: {IMAGE_FILE}")
-    print(f"Image size: {len(image_bytes)} bytes")
+    try:
+        image_response = requests.get(
+            image_url,
+            timeout=120
+        )
+
+        image_response.raise_for_status()
+
+    except Exception as e:
+        print("\nERROR downloading generated image:")
+        print(str(e))
+        sys.exit(1)
+
+    with open(IMAGE_FILE, "wb") as f:
+        f.write(image_response.content)
+
+    print(f"Image saved: {IMAGE_FILE}")
+    print(f"Image size: {IMAGE_FILE.stat().st_size} bytes")
+
+
+# ============================================================
+# GENERATE ODIA VOICE
+# ============================================================
+
+def generate_voice(content):
+
+    print("\n" + "=" * 60)
+    print("Generating Odia voice narration...")
+    print("=" * 60)
+
+    voice_text = content["voice_text"].strip()
+
+    if not voice_text:
+        print("ERROR: voice_text is empty.")
+        sys.exit(1)
+
+    print("\nVoice text:")
+    print(voice_text)
+
+    try:
+
+        speech_response = client.audio.speech.create(
+            model=OPENAI_TTS_MODEL,
+            voice="coral",
+            input=voice_text,
+            instructions=(
+                "Speak clearly and naturally in Odia. "
+                "Use a calm, peaceful and devotional tone. "
+                "This is narration for a Bhagavad Gita spiritual "
+                "Facebook Reel. Speak slowly enough to be understood, "
+                "but keep the narration concise."
+            ),
+            response_format="mp3",
+            speed=0.95
+        )
+
+        speech_response.write_to_file(
+            str(AUDIO_FILE)
+        )
+
+    except Exception as e:
+
+        print("\nERROR generating voice:")
+        print(str(e))
+
+        sys.exit(1)
+
+    if not AUDIO_FILE.exists():
+        print("\nERROR: Voice file was not created.")
+        sys.exit(1)
+
+    if AUDIO_FILE.stat().st_size == 0:
+        print("\nERROR: Voice file is empty.")
+        sys.exit(1)
+
+    print(f"\nVoice created successfully:")
+    print(AUDIO_FILE)
+    print(f"Voice size: {AUDIO_FILE.stat().st_size} bytes")
+
+
+# ============================================================
+# CHECK FFMPEG
+# ============================================================
+
+def check_ffmpeg():
+
+    print("\nChecking FFmpeg...")
+
+    try:
+
+        result = subprocess.run(
+            ["ffmpeg", "-version"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+
+        if result.returncode != 0:
+            raise RuntimeError("FFmpeg is not available.")
+
+        first_line = result.stdout.splitlines()[0]
+
+        print(first_line)
+
+    except Exception as e:
+
+        print("\nERROR: FFmpeg is not installed.")
+        print(str(e))
+
+        print(
+            "\nAdd the following step to reel.yml:\n"
+            "sudo apt-get update && sudo apt-get install -y ffmpeg"
+        )
+
+        sys.exit(1)
 
 
 # ============================================================
@@ -182,27 +376,43 @@ Composition:
 # ============================================================
 
 def create_video():
-    print("\nCreating 20-second Reel with FFmpeg...")
+
+    print("\n" + "=" * 60)
+    print("Creating 20-second video with voice...")
+    print("=" * 60)
 
     if not IMAGE_FILE.exists():
-        raise RuntimeError("Generated image does not exist.")
+        print("ERROR: Image file does not exist.")
+        sys.exit(1)
+
+    if not AUDIO_FILE.exists():
+        print("ERROR: Audio file does not exist.")
+        sys.exit(1)
 
     command = [
         "ffmpeg",
         "-y",
 
+        # IMAGE
         "-loop",
         "1",
 
         "-i",
         str(IMAGE_FILE),
 
-        "-t",
-        "20",
+        # AUDIO
+        "-i",
+        str(AUDIO_FILE),
 
+        # Duration
+        "-t",
+        str(VIDEO_DURATION),
+
+        # Vertical video
         "-vf",
         (
-            "scale=1080:1920:force_original_aspect_ratio=increase,"
+            "scale=1080:1920:"
+            "force_original_aspect_ratio=increase,"
             "crop=1080:1920,"
             "zoompan="
             "z='min(zoom+0.0005,1.08)':"
@@ -216,6 +426,15 @@ def create_video():
         "-r",
         "30",
 
+        # Explicitly map video
+        "-map",
+        "0:v:0",
+
+        # Explicitly map audio
+        "-map",
+        "1:a:0",
+
+        # Video encoding
         "-c:v",
         "libx264",
 
@@ -225,13 +444,27 @@ def create_video():
         "-pix_fmt",
         "yuv420p",
 
+        # Audio encoding
+        "-c:a",
+        "aac",
+
+        "-b:a",
+        "128k",
+
+        "-ar",
+        "44100",
+
+        # Stop after video duration
+        "-shortest",
+
+        # Better streaming compatibility
         "-movflags",
         "+faststart",
 
-        "-an",
-
         str(VIDEO_FILE)
     ]
+
+    print("\nRunning FFmpeg...")
 
     result = subprocess.run(
         command,
@@ -243,75 +476,148 @@ def create_video():
     print(result.stdout)
 
     if result.returncode != 0:
-        raise RuntimeError("FFmpeg failed to create the Reel.")
+
+        print("\nERROR: FFmpeg failed.")
+        sys.exit(1)
 
     if not VIDEO_FILE.exists():
-        raise RuntimeError("Video file was not created.")
+
+        print("\nERROR: Video was not created.")
+        sys.exit(1)
 
     size = VIDEO_FILE.stat().st_size
 
-    print(f"Video created: {VIDEO_FILE}")
-    print(f"Video size: {size} bytes")
+    if size == 0:
+
+        print("\nERROR: Video file is empty.")
+        sys.exit(1)
+
+    print("\nVideo created successfully.")
+    print(f"File: {VIDEO_FILE}")
+    print(f"Size: {size} bytes")
 
 
 # ============================================================
-# FACEBOOK REEL - START UPLOAD
+# VERIFY VIDEO HAS AUDIO
 # ============================================================
 
-def start_reel_upload():
+def verify_video_audio():
 
-    url = (
+    print("\nChecking video audio stream...")
+
+    command = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-select_streams",
+        "a:0",
+        "-show_entries",
+        "stream=codec_name",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+        str(VIDEO_FILE)
+    ]
+
+    result = subprocess.run(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True
+    )
+
+    audio_codec = result.stdout.strip()
+
+    if not audio_codec:
+
+        print("\nERROR: No audio stream detected in video.")
+        sys.exit(1)
+
+    print(f"Audio codec detected: {audio_codec}")
+    print("Audio verification: OK")
+
+
+# ============================================================
+# FACEBOOK REEL UPLOAD
+# ============================================================
+
+def publish_reel():
+
+    print("\n" + "=" * 60)
+    print("Publishing Reel to Facebook...")
+    print("=" * 60)
+
+    if not VIDEO_FILE.exists():
+        print("ERROR: Video does not exist.")
+        sys.exit(1)
+
+    graph_url = (
         f"https://graph.facebook.com/"
-        f"{GRAPH_VERSION}/"
+        f"{GRAPH_API_VERSION}/"
         f"{META_PAGE_ID}/video_reels"
     )
 
-    params = {
-        "access_token": META_PAGE_ACCESS_TOKEN,
-        "upload_phase": "start",
-        "file_size": str(VIDEO_FILE.stat().st_size)
-    }
+    print(f"\nFacebook endpoint:")
+    print(graph_url)
+
+    # --------------------------------------------------------
+    # STEP 1: START UPLOAD
+    # --------------------------------------------------------
 
     print("\nStarting Facebook Reel upload...")
 
-    response = requests.post(
-        url,
-        params=params,
-        timeout=60
+    start_data = {
+        "upload_phase": "start",
+        "access_token": META_PAGE_ACCESS_TOKEN
+    }
+
+    start_response = requests.post(
+        graph_url,
+        data=start_data,
+        timeout=120
     )
 
-    print("Facebook start response:", response.status_code)
-    print(response.text)
+    print(
+        f"Start upload HTTP status: "
+        f"{start_response.status_code}"
+    )
 
-    if response.status_code != 200:
-        raise RuntimeError(
-            f"Facebook Reel start failed: "
-            f"{response.status_code} {response.text}"
-        )
+    try:
+        start_json = start_response.json()
+    except Exception:
+        print(start_response.text)
+        sys.exit(1)
 
-    data = response.json()
+    if start_response.status_code >= 400:
 
-    video_id = data.get("video_id")
-    upload_url = data.get("upload_url")
+        print("\nFacebook start upload error:")
+        print(json.dumps(start_json, indent=2))
+
+        sys.exit(1)
+
+    video_id = start_json.get("video_id")
 
     if not video_id:
-        raise RuntimeError("Facebook did not return video_id.")
 
-    if not upload_url:
-        raise RuntimeError("Facebook did not return upload_url.")
+        print("\nERROR: Facebook did not return video_id.")
+        print(json.dumps(start_json, indent=2))
 
-    return video_id, upload_url
+        sys.exit(1)
 
+    print(f"Facebook video ID: {video_id}")
 
-# ============================================================
-# FACEBOOK REEL - TRANSFER VIDEO
-# ============================================================
-
-def transfer_video(video_id, upload_url):
+    # --------------------------------------------------------
+    # STEP 2: UPLOAD LOCAL VIDEO
+    # --------------------------------------------------------
 
     print("\nUploading MP4 to Facebook...")
 
     file_size = VIDEO_FILE.stat().st_size
+
+    upload_url = (
+        f"https://graph-video.facebook.com/"
+        f"{GRAPH_API_VERSION}/"
+        f"{video_id}"
+    )
 
     headers = {
         "Authorization": f"OAuth {META_PAGE_ACCESS_TOKEN}",
@@ -321,112 +627,152 @@ def transfer_video(video_id, upload_url):
 
     with open(VIDEO_FILE, "rb") as video_file:
 
-        response = requests.post(
+        upload_response = requests.post(
             upload_url,
             headers=headers,
             data=video_file,
             timeout=300
         )
 
-    print("Facebook transfer response:", response.status_code)
-    print(response.text)
-
-    if response.status_code not in (200, 201):
-        raise RuntimeError(
-            f"Facebook video transfer failed: "
-            f"{response.status_code} {response.text}"
-        )
-
-    return True
-
-
-# ============================================================
-# FACEBOOK REEL - PUBLISH
-# ============================================================
-
-def publish_reel(video_id, content):
-
-    url = (
-        f"https://graph.facebook.com/"
-        f"{GRAPH_VERSION}/"
-        f"{META_PAGE_ID}/video_reels"
+    print(
+        f"Upload HTTP status: "
+        f"{upload_response.status_code}"
     )
 
-    description = (
-        content["caption"]
-        + "\n\n"
-        + content["hashtags"]
-    )
+    try:
+        upload_json = upload_response.json()
+    except Exception:
+        upload_json = {
+            "raw_response": upload_response.text
+        }
 
-    params = {
-        "access_token": META_PAGE_ACCESS_TOKEN,
+    if upload_response.status_code >= 400:
+
+        print("\nFacebook video upload error:")
+        print(json.dumps(upload_json, indent=2))
+
+        sys.exit(1)
+
+    print("\nVideo uploaded successfully.")
+
+    # --------------------------------------------------------
+    # STEP 3: FINISH / PUBLISH REEL
+    # --------------------------------------------------------
+
+    print("\nPublishing Reel...")
+
+    caption = CURRENT_CONTENT.get("caption", "")
+
+    hashtags = CURRENT_CONTENT.get("hashtags", [])
+
+    if hashtags:
+        caption += "\n\n" + " ".join(hashtags)
+
+    finish_data = {
         "upload_phase": "finish",
         "video_id": video_id,
         "video_state": "PUBLISHED",
-        "description": description
+        "description": caption,
+        "access_token": META_PAGE_ACCESS_TOKEN
     }
 
-    print("\nPublishing Facebook Reel...")
-
-    response = requests.post(
-        url,
-        params=params,
+    finish_response = requests.post(
+        graph_url,
+        data=finish_data,
         timeout=120
     )
 
-    print("Facebook publish response:", response.status_code)
-    print(response.text)
+    print(
+        f"Finish HTTP status: "
+        f"{finish_response.status_code}"
+    )
 
-    if response.status_code != 200:
-        raise RuntimeError(
-            f"Facebook Reel publish failed: "
-            f"{response.status_code} {response.text}"
-        )
+    try:
+        finish_json = finish_response.json()
+    except Exception:
+        finish_json = {
+            "raw_response": finish_response.text
+        }
 
-    data = response.json()
+    if finish_response.status_code >= 400:
 
-    print("\n==========================================")
-    print("SUCCESS: Facebook Reel published")
-    print("Video ID:", video_id)
-    print("==========================================")
+        print("\nFacebook publish error:")
+        print(json.dumps(finish_json, indent=2))
 
-    return data
+        sys.exit(1)
+
+    print("\nFacebook response:")
+    print(json.dumps(finish_json, indent=2))
+
+    print("\n" + "=" * 60)
+    print("FACEBOOK REEL PUBLISHED SUCCESSFULLY")
+    print("=" * 60)
+
+    print(f"Video ID: {video_id}")
 
 
 # ============================================================
 # MAIN
 # ============================================================
 
+CURRENT_CONTENT = {}
+
+
 def main():
 
-    print("==========================================")
-    print(" ODISHA BHAGABAT GITA - AUTO REEL")
-    print("==========================================")
+    print("\n")
+    print("=" * 70)
+    print("ODIA BHAGABATA GITA - AUTOMATIC FACEBOOK REEL")
+    print("=" * 70)
 
-    check_environment()
+    validate_environment()
 
     # 1. Generate Odia content
     content = generate_content()
 
-    # 2. Generate devotional vertical image
+    global CURRENT_CONTENT
+    CURRENT_CONTENT = content
+
+    # 2. Generate devotional image
     generate_image(content)
 
-    # 3. Convert image into 20-second MP4
+    # 3. Generate Odia voice
+    generate_voice(content)
+
+    # 4. Check FFmpeg
+    check_ffmpeg()
+
+    # 5. Create MP4 with image + voice
     create_video()
 
-    # 4. Start Meta Reel upload
-    video_id, upload_url = start_reel_upload()
+    # 6. Verify audio exists inside MP4
+    verify_video_audio()
 
-    # 5. Transfer MP4
-    transfer_video(video_id, upload_url)
+    # 7. Publish Facebook Reel
+    publish_reel()
 
-    # Small delay before publishing
-    print("\nWaiting for Facebook processing...")
-    time.sleep(5)
+    print("\nAll tasks completed successfully.")
 
-    # 6. Publish Reel
-    publish_reel(video_id, content)
 
+# ============================================================
+# RUN
+# ============================================================
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+
+    except KeyboardInterrupt:
+
+        print("\nProcess interrupted.")
+        sys.exit(1)
+
+    except Exception as e:
+
+        print("\n" + "=" * 70)
+        print("UNEXPECTED ERROR")
+        print("=" * 70)
+
+        print(str(e))
+
+        sys.exit(1)
